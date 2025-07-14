@@ -7,12 +7,16 @@
     "dev": "vite",
     "build": "vite build",
     "lint": "eslint .",
-    "preview": "vite preview"
+    "preview": "vite preview",
+    "whatsapp": "node whatsapp-server.cjs",
+    "dev:whatsapp": "concurrently \"npm run dev\" \"npm run whatsapp\""
   },
   "dependencies": {
     "@supabase/auth-ui-react": "^0.4.7",
     "@supabase/auth-ui-shared": "^0.1.8",
     "@supabase/supabase-js": "^2.39.7",
+    "cors": "^2.8.5",
+    "express": "^5.1.0",
     "imask": "^7.5.0",
     "lucide-react": "^0.344.0",
     "qrcode": "^1.5.4",
@@ -22,6 +26,7 @@
     "react-dnd-html5-backend": "^16.0.1",
     "react-dom": "^18.3.1",
     "react-router-dom": "^6.22.3",
+    "socket.io": "^4.8.1",
     "socket.io-client": "^4.8.1",
     "whatsapp-web.js": "^1.31.0",
     "xlsx": "^0.18.5"
@@ -32,6 +37,7 @@
     "@types/react-dom": "^18.3.0",
     "@vitejs/plugin-react": "^4.3.1",
     "autoprefixer": "^10.4.18",
+    "concurrently": "^9.2.0",
     "eslint": "^9.9.1",
     "eslint-plugin-react-hooks": "^5.1.0-rc.0",
     "eslint-plugin-react-refresh": "^0.4.11",

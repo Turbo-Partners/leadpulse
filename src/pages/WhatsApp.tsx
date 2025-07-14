@@ -1,115 +1,52 @@
 import React, { useState, useEffect, useRef } from 'react';
-import { QRCodeSVG } from 'qrcode.react';
-import { Search, Filter, Plus, Smile, Paperclip, Send, MoreVertical, Phone, Video, RefreshCw } from 'lucide-react';
+import { Search, Filter, Plus, Smile, Paperclip, Send, MoreVertical, Phone, Video, RefreshCw, LogOut } from 'lucide-react';
 import Input from '../components/ui/Input';
 import Button from '../components/ui/Button';
 import Avatar from '../components/ui/Avatar';
 import Card from '../components/ui/Card';
+import { useWhatsApp } from '../hooks/useWhatsApp';
 
-interface Chat {
+interface WhatsAppMessage {
   id: string;
-  name: string;
-  lastMessage: string;
-  time: string;
-  unread: number;
-  status: 'online' | 'offline';
-  avatar?: string;
-}
-
-interface Message {
-  id: string;
-  content: string;
-  timestamp: string;
-  sender: 'user' | 'contact';
-  status: 'sent' | 'delivered' | 'read';
-  type: 'text' | 'image' | 'file';
-  file?: {
-    url: string;
+  from: string;
+  body: string;
+  timestamp: number;
+  type: string;
+  isFromMe?: boolean;
+  chat?: {
+    id: string;
     name: string;
-    size: string;
   };
 }
 
+interface WhatsAppChat {
+  id: string;
+  name: string;
+  lastMessage: string;
+  timestamp: number;
+  unreadCount: number;
+}
+
 const WhatsApp = () => {
-  const [isConnected, setIsConnected] = useState(false);
-  const [selectedChat, setSelectedChat] = useState<Chat | null>(null);
+  const {
+    isConnected,
+    qrCode,
+    chats,
+    messages,
+    loading,
+    error,
+    connect,
+    disconnect,
+    sendMessage,
+    getChats,
+    getMessages,
+    reconnect
+  } = useWhatsApp();
+
+  const [selectedChat, setSelectedChat] = useState<WhatsAppChat | null>(null);
   const [message, setMessage] = useState('');
   const [searchQuery, setSearchQuery] = useState('');
   const messagesEndRef = useRef<HTMLDivElement>(null);
-  const [qrCode, setQrCode] = useState('dummy-qr-code-data');
-  const [connecting, setConnecting] = useState(false);
-
-  const mockChats: Chat[] = [
-    {
-      id: '1',
-      name: 'Guilherme Cassemiro',
-      lastMessage: 'Podemos começar a reunião de 15hrs',
-      time: '14:50',
-      unread: 3,
-      status: 'online',
-      avatar: 'https://images.pexels.com/photos/220453/pexels-photo-220453.jpeg'
-    },
-    {
-      id: '2',
-      name: 'Daniel Teixeira',
-      lastMessage: 'Fica a vontade',
-      time: '14:45',
-      unread: 0,
-      status: 'offline',
-      avatar: 'https://images.pexels.com/photos/1222271/pexels-photo-1222271.jpeg'
-    }
-  ];
-
-  const mockMessages: Message[] = [
-    {
-      id: '1',
-      content: 'eu acabei me liberando antes aqui',
-      timestamp: '14:50',
-      sender: 'contact',
-      status: 'read',
-      type: 'text'
-    },
-    {
-      id: '2',
-      content: 'se puder fazer agora',
-      timestamp: '14:50',
-      sender: 'contact',
-      status: 'read',
-      type: 'text'
-    },
-    {
-      id: '3',
-      content: 'podemos começar',
-      timestamp: '14:50',
-      sender: 'contact',
-      status: 'read',
-      type: 'text'
-    },
-    {
-      id: '4',
-      content: 'reunião de 15hrs',
-      timestamp: '14:50',
-      sender: 'contact',
-      status: 'read',
-      type: 'text'
-    },
-    {
-      id: '5',
-      content: 'beleza',
-      timestamp: '14:51',
-      sender: 'user',
-      status: 'read',
-      type: 'text'
-    },
-    {
-      id: '6',
-      content: 'vou entrar 15h mesmo',
-      timestamp: '14:51',
-      sender: 'user',
-      status: 'delivered',
-      type: 'text'
-    }
-  ];
 
   const scrollToBottom = () => {
     messagesEndRef.current?.scrollIntoView({ behavior: 'smooth' });
@@ -117,31 +54,70 @@ const WhatsApp = () => {
 
   useEffect(() => {
     scrollToBottom();
-  }, [mockMessages]);
+  }, [messages]);
+
+  useEffect(() => {
+    if (isConnected) {
+      getChats();
+    }
+  }, [isConnected, getChats]);
 
   const handleSendMessage = (e: React.FormEvent) => {
     e.preventDefault();
-    if (!message.trim()) return;
+    if (!message.trim() || !selectedChat) return;
     
-    // Here you would typically send the message to your backend
-    console.log('Sending message:', message);
+    sendMessage(selectedChat.id, message);
     setMessage('');
   };
 
-  const handleConnect = () => {
-    setConnecting(true);
-    // Simulate connection process
-    setTimeout(() => {
-      setConnecting(false);
-      setIsConnected(true);
-    }, 2000);
+  const handleChatSelect = (chat: WhatsAppChat) => {
+    setSelectedChat(chat);
+    getMessages(chat.id);
   };
+
+  const formatTime = (timestamp: number) => {
+    const date = new Date(timestamp * 1000);
+    return date.toLocaleTimeString('pt-BR', { 
+      hour: '2-digit', 
+      minute: '2-digit' 
+    });
+  };
+
+  const formatDate = (timestamp: number) => {
+    const date = new Date(timestamp * 1000);
+    const today = new Date();
+    const yesterday = new Date(today);
+    yesterday.setDate(yesterday.getDate() - 1);
+
+    if (date.toDateString() === today.toDateString()) {
+      return formatTime(timestamp);
+    } else if (date.toDateString() === yesterday.toDateString()) {
+      return 'Ontem';
+    } else {
+      return date.toLocaleDateString('pt-BR', { 
+        day: '2-digit', 
+        month: '2-digit' 
+      });
+    }
+  };
+
+  const filteredChats = chats.filter(chat =>
+    chat.name.toLowerCase().includes(searchQuery.toLowerCase()) ||
+    chat.lastMessage.toLowerCase().includes(searchQuery.toLowerCase())
+  );
 
   if (!isConnected) {
     return (
       <div className="h-[calc(100vh-8rem)] flex items-center justify-center">
         <Card className="p-8 max-w-md w-full text-center">
           <h2 className="text-2xl font-bold mb-6">Conectar WhatsApp</h2>
+          
+          {error && (
+            <div className="mb-4 p-3 bg-red-100 border border-red-400 text-red-700 rounded">
+              {error}
+            </div>
+          )}
+
           <div className="mb-6">
             <p className="text-gray-600 mb-4">
               Para usar o WhatsApp no LeadPulse, siga os passos:
@@ -153,20 +129,32 @@ const WhatsApp = () => {
             </ol>
           </div>
           
-          <div className="flex justify-center mb-6">
-            <div className="p-4 bg-white rounded-lg shadow-inner">
-              <QRCodeSVG value={qrCode} size={256} />
+          {qrCode && (
+            <div className="flex justify-center mb-6">
+              <div className="p-4 bg-white rounded-lg shadow-inner">
+                <img src={qrCode} alt="QR Code" className="w-64 h-64" />
+              </div>
             </div>
-          </div>
+          )}
 
-          <Button
-            onClick={handleConnect}
-            isLoading={connecting}
-            leftIcon={<RefreshCw size={16} />}
-            fullWidth
-          >
-            {connecting ? 'Conectando...' : 'Recarregar QR Code'}
-          </Button>
+          <div className="space-y-3">
+            <Button
+              onClick={reconnect}
+              isLoading={loading}
+              leftIcon={<RefreshCw size={16} />}
+              fullWidth
+            >
+              {loading ? 'Conectando...' : 'Recarregar QR Code'}
+            </Button>
+            
+            <Button
+              onClick={connect}
+              variant="outline"
+              fullWidth
+            >
+              Reconectar
+            </Button>
+          </div>
         </Card>
       </div>
     );
@@ -189,10 +177,11 @@ const WhatsApp = () => {
               </div>
             </div>
             <button 
-              onClick={() => setIsConnected(false)}
+              onClick={disconnect}
               className="text-gray-500 hover:text-gray-700"
+              title="Desconectar"
             >
-              <MoreVertical size={20} />
+              <LogOut size={20} />
             </button>
           </div>
           <Input
@@ -205,31 +194,37 @@ const WhatsApp = () => {
         </div>
 
         <div className="flex-1 overflow-y-auto">
-          {mockChats.map((chat) => (
-            <button
-              key={chat.id}
-              onClick={() => setSelectedChat(chat)}
-              className={`w-full p-4 flex items-center space-x-3 hover:bg-gray-50 ${
-                selectedChat?.id === chat.id ? 'bg-blue-50' : ''
-              }`}
-            >
-              <Avatar src={chat.avatar} name={chat.name} size="md" />
-              <div className="flex-1 min-w-0">
-                <div className="flex justify-between items-start">
-                  <p className="text-sm font-medium text-gray-900 truncate">
-                    {chat.name}
-                  </p>
-                  <span className="text-xs text-gray-500">{chat.time}</span>
+          {filteredChats.length === 0 ? (
+            <div className="p-4 text-center text-gray-500">
+              {searchQuery ? 'Nenhuma conversa encontrada' : 'Nenhuma conversa disponível'}
+            </div>
+          ) : (
+            filteredChats.map((chat) => (
+              <button
+                key={chat.id}
+                onClick={() => handleChatSelect(chat)}
+                className={`w-full p-4 flex items-center space-x-3 hover:bg-gray-50 ${
+                  selectedChat?.id === chat.id ? 'bg-blue-50' : ''
+                }`}
+              >
+                <Avatar name={chat.name} size="md" />
+                <div className="flex-1 min-w-0">
+                  <div className="flex justify-between items-start">
+                    <p className="text-sm font-medium text-gray-900 truncate">
+                      {chat.name}
+                    </p>
+                    <span className="text-xs text-gray-500">{formatDate(chat.timestamp)}</span>
+                  </div>
+                  <p className="text-sm text-gray-500 truncate">{chat.lastMessage}</p>
                 </div>
-                <p className="text-sm text-gray-500 truncate">{chat.lastMessage}</p>
-              </div>
-              {chat.unread > 0 && (
-                <span className="bg-green-500 text-white text-xs px-2 py-1 rounded-full">
-                  {chat.unread}
-                </span>
-              )}
-            </button>
-          ))}
+                {chat.unreadCount > 0 && (
+                  <span className="bg-green-500 text-white text-xs px-2 py-1 rounded-full">
+                    {chat.unreadCount}
+                  </span>
+                )}
+              </button>
+            ))
+          )}
         </div>
       </div>
 
@@ -239,12 +234,10 @@ const WhatsApp = () => {
           {/* Chat Header */}
           <div className="p-4 border-b flex items-center justify-between bg-gray-50">
             <div className="flex items-center space-x-3">
-              <Avatar src={selectedChat.avatar} name={selectedChat.name} size="md" />
+              <Avatar name={selectedChat.name} size="md" />
               <div>
                 <h2 className="text-lg font-semibold">{selectedChat.name}</h2>
-                <p className="text-sm text-gray-500">
-                  {selectedChat.status === 'online' ? 'Online' : 'Offline'}
-                </p>
+                <p className="text-sm text-gray-500">WhatsApp</p>
               </div>
             </div>
             <div className="flex items-center space-x-4">
@@ -271,34 +264,38 @@ const WhatsApp = () => {
               backgroundColor: '#ffffff'
             }}
           >
-            {mockMessages.map((msg) => (
-              <div
-                key={msg.id}
-                className={`flex ${msg.sender === 'user' ? 'justify-end' : 'justify-start'}`}
-              >
+            {messages.length === 0 ? (
+              <div className="text-center text-gray-500 mt-8">
+                Nenhuma mensagem ainda. Comece a conversar!
+              </div>
+            ) : (
+              messages.map((msg) => (
                 <div
-                  className={`max-w-[70%] rounded-lg px-4 py-2 ${
-                    msg.sender === 'user'
-                      ? 'bg-green-500 text-white'
-                      : 'bg-white text-gray-900 shadow'
-                  }`}
+                  key={msg.id}
+                  className={`flex ${msg.isFromMe ? 'justify-end' : 'justify-start'}`}
                 >
-                  <p className="text-sm">{msg.content}</p>
-                  <div className="flex items-center justify-end space-x-1 mt-1">
-                    <p className="text-xs opacity-70">
-                      {msg.timestamp}
-                    </p>
-                    {msg.sender === 'user' && (
-                      <span className="text-xs">
-                        {msg.status === 'sent' && '✓'}
-                        {msg.status === 'delivered' && '✓✓'}
-                        {msg.status === 'read' && '✓✓'}
-                      </span>
-                    )}
+                  <div
+                    className={`max-w-[70%] rounded-lg px-4 py-2 ${
+                      msg.isFromMe
+                        ? 'bg-green-500 text-white'
+                        : 'bg-white text-gray-900 shadow'
+                    }`}
+                  >
+                    <p className="text-sm">{msg.body}</p>
+                    <div className="flex items-center justify-end space-x-1 mt-1">
+                      <p className="text-xs opacity-70">
+                        {formatTime(msg.timestamp)}
+                      </p>
+                      {msg.isFromMe && (
+                        <span className="text-xs">
+                          ✓✓
+                        </span>
+                      )}
+                    </div>
                   </div>
                 </div>
-              </div>
-            ))}
+              ))
+            )}
             <div ref={messagesEndRef} />
           </div>
 

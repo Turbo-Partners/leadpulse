@@ -19,6 +19,10 @@ export interface Lead {
   owner_id?: string; // Add owner_id for lead ownership
   group_id?: string; // Add group_id for group association
   assigned_to?: string; // Add assigned_to for task assignment
+  // Social media fields
+  instagram?: string;
+  facebook?: string;
+  website?: string;
 }
 
 // Cadence models

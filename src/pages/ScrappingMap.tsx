@@ -1,5 +1,5 @@
 import React, { useState, useEffect } from 'react';
-import { Search, Loader, AlertCircle, Save, Download, Crown, Clock, Check, History, Eye, Trash2 } from 'lucide-react';
+import { Search, Loader, AlertCircle, Save, Download, Crown, Check, History, Eye, Trash2 } from 'lucide-react';
 import Card from '../components/ui/Card';
 import Input from '../components/ui/Input';
 import Button from '../components/ui/Button';
@@ -7,11 +7,52 @@ import { supabase } from '../lib/supabase';
 import { useNavigate } from 'react-router-dom';
 import { useAuth } from '../contexts/AuthContext';
 import * as XLSX from 'xlsx';
+import { ScrappingResultsTable } from '../components/ScrappingResultsTable';
 
 interface ScrappingResult {
   title: string;
   phone: string;
-  email: string;
+  email: string | null;
+  pontuacao: number;
+  instagram: string | null;
+  facebook: string | null;
+  website: string | null;
+  completo?: {
+    title: string;
+    description: string;
+    price: string | null;
+    categoryName: string;
+    address: string;
+    neighborhood: string;
+    street: string;
+    city: string;
+    postalCode: string;
+    state: string;
+    countryCode: string;
+    website: string | null;
+    phone: string;
+    phoneUnformatted: string;
+    totalScore: number;
+    permanentlyClosed: boolean;
+    temporarilyClosed: boolean;
+    placeId: string;
+    categories: string[];
+    reviewsCount: number;
+    imagesCount: number;
+    openingHours: Array<{
+      day: string;
+      hours: string;
+    }>;
+              additionalInfo: Record<string, unknown>;
+    url: string;
+    imageUrl: string | null;
+    domain: string | null;
+    emails: string[];
+    phones: string[];
+    phonesUncertain: string[];
+    instagrams: string[];
+    facebooks: string[];
+  };
 }
 
 interface UserSubscription {
@@ -72,9 +113,11 @@ const ScrappingMap = () => {
   const [showHistory, setShowHistory] = useState(false);
   const [scrapingSessions, setScrapingSessions] = useState<ScrapingSession[]>([]);
   const [selectedSession, setSelectedSession] = useState<ScrapingSession | null>(null);
-  const [sessionResults, setSessionResults] = useState<ScrapingLead[]>([]);
+  const [sessionResults, setSessionResults] = useState<Record<string, ScrapingLead[]>>({});
+  const [loadingSessionResults, setLoadingSessionResults] = useState<string | null>(null);
+  const [expandedRows, setExpandedRows] = useState<Set<number>>(new Set());
+  const [expandedSessionId, setExpandedSessionId] = useState<string | null>(null);
   const [loadingHistory, setLoadingHistory] = useState(false);
-  const [loadingSessionResults, setLoadingSessionResults] = useState(false);
 
   useEffect(() => {
     if (user) {
@@ -181,7 +224,7 @@ const ScrappingMap = () => {
   };
 
   const fetchSessionResults = async (sessionId: string) => {
-    setLoadingSessionResults(true);
+    setLoadingSessionResults(sessionId);
     try {
       const { data, error } = await supabase
         .from('scrapping_leads')
@@ -190,11 +233,11 @@ const ScrappingMap = () => {
         .order('created_at', { ascending: false });
 
       if (error) throw error;
-      setSessionResults(data || []);
+      setSessionResults(prev => ({ ...prev, [sessionId]: data || [] }));
     } catch (err) {
       console.error('Error fetching session results:', err);
     } finally {
-      setLoadingSessionResults(false);
+      setLoadingSessionResults(null);
     }
   };
 
@@ -240,7 +283,7 @@ const ScrappingMap = () => {
         company_name: result.title || null,
         phone: result.phone || null,
         email: result.email || null,
-        address: null,
+        address: result.completo?.address || null,
         created_by: user.id,
         session_id: sessionId
       }));
@@ -342,7 +385,11 @@ const ScrappingMap = () => {
       if (data && typeof data === 'object') {
         let extractedResults: ScrappingResult[] = [];
         
-        if (Array.isArray(data)) {
+        // Handle the new nested structure: [{ resultado: [...] }]
+        if (Array.isArray(data) && data.length > 0 && data[0].resultado && Array.isArray(data[0].resultado)) {
+          extractedResults = data[0].resultado;
+          console.log('Processing as nested resultado array:', extractedResults);
+        } else if (Array.isArray(data)) {
           extractedResults = data;
           console.log('Processing as direct array:', extractedResults);
         } else if (data.results && Array.isArray(data.results)) {
@@ -444,7 +491,7 @@ const ScrappingMap = () => {
       const leads = results.map(result => ({
         companyname: result.title || '',
         contactname: '',
-        email: result.email || '',
+        email: result.email || result.completo?.emails?.[0] || '',
         phone: result.phone || '',
         jobtitle: '',
         status: 'leads',
@@ -453,13 +500,20 @@ const ScrappingMap = () => {
         responsible: (user?.user_metadata?.name as string) || 'Unknown',
         user_id: user?.id,
         owner_id: user?.id,
+        // Apenas campos de redes sociais que existem na tabela
+        instagram: result.instagram || result.completo?.instagrams?.[0] || '',
+        facebook: result.facebook || result.completo?.facebooks?.[0] || '',
+        website: result.website || result.completo?.website || ''
       }));
 
       const { error } = await supabase
         .from('leads')
         .insert(leads);
 
-      if (error) throw error;
+      if (error) {
+        console.error('Database error:', error);
+        throw new Error(`Erro no banco de dados: ${error.message}`);
+      }
 
       navigate('/pipeline', { 
         state: { 
@@ -468,8 +522,8 @@ const ScrappingMap = () => {
         }
       });
     } catch (error) {
-      setError('Erro ao salvar leads no pipeline.');
-      console.error('Error:', error);
+      console.error('Error saving leads:', error);
+      setError(`Erro ao salvar leads no pipeline: ${error instanceof Error ? error.message : 'Erro desconhecido'}`);
     } finally {
       setIsSaving(false);
     }
@@ -479,7 +533,26 @@ const ScrappingMap = () => {
     const exportData = results.map(result => ({
       'Empresa': result.title,
       'Telefone': result.phone,
-      'Email': result.email
+      'Email': result.email,
+      'Pontuação': result.pontuacao,
+      'Instagram': result.instagram,
+      'Facebook': result.facebook,
+      'Website': result.website,
+      'Endereço': result.completo?.address,
+      'Bairro': result.completo?.neighborhood,
+      'Cidade': result.completo?.city,
+      'Estado': result.completo?.state,
+      'CEP': result.completo?.postalCode,
+      'Categoria': result.completo?.categoryName,
+      'Descrição': result.completo?.description,
+      'Preço': result.completo?.price,
+      'Avaliações': result.completo?.reviewsCount,
+      'Fotos': result.completo?.imagesCount,
+      'URL Google': result.completo?.url,
+      'Emails Encontrados': result.completo?.emails?.join(', '),
+      'Telefones Adicionais': result.completo?.phones?.join(', '),
+      'Instagram URLs': result.completo?.instagrams?.join(', '),
+      'Facebook URLs': result.completo?.facebooks?.join(', ')
     }));
 
     const ws = XLSX.utils.json_to_sheet(exportData);
@@ -497,6 +570,45 @@ const ScrappingMap = () => {
     await fetchSessionResults(session.id);
   };
 
+  const handleToggleSession = async (session: ScrapingSession) => {
+    if (expandedSessionId === session.id) {
+      setExpandedSessionId(null);
+      return;
+    }
+    setExpandedSessionId(session.id);
+    if (!sessionResults[session.id]) {
+      setLoadingSessionResults(session.id);
+      try {
+        const { data, error } = await supabase
+          .from('scrapping_leads')
+          .select('*')
+          .eq('session_id', session.id)
+          .order('created_at', { ascending: false });
+        setSessionResults(prev => ({ ...prev, [session.id]: data || [] }));
+      } finally {
+        setLoadingSessionResults(null);
+      }
+    }
+  };
+
+  const toggleRowExpansion = (index: number) => {
+    const newExpandedRows = new Set(expandedRows);
+    if (newExpandedRows.has(index)) {
+      newExpandedRows.delete(index);
+    } else {
+      newExpandedRows.add(index);
+    }
+    setExpandedRows(newExpandedRows);
+  };
+
+  const toggleAllRows = () => {
+    if (expandedRows.size === results.length) {
+      setExpandedRows(new Set());
+    } else {
+      setExpandedRows(new Set(results.map((_, index) => index)));
+    }
+  };
+
   const handleDeleteSession = async (sessionId: string) => {
     if (!confirm('Tem certeza que deseja excluir esta sessão de scraping?')) return;
 
@@ -509,9 +621,9 @@ const ScrappingMap = () => {
       if (error) throw error;
 
       await fetchScrapingHistory();
-      if (selectedSession?.id === sessionId) {
-        setSelectedSession(null);
-        setSessionResults([]);
+      if (expandedSessionId === sessionId) {
+        setExpandedSessionId(null);
+        setSessionResults({});
       }
     } catch (err) {
       console.error('Error deleting session:', err);
@@ -627,14 +739,12 @@ const ScrappingMap = () => {
           ) : (
             <div className="space-y-4">
               {scrapingSessions.map((session) => (
-                <div key={session.id} className="border rounded-lg p-4 hover:bg-gray-50">
+                <div key={session.id} className="border rounded-lg p-4 hover:bg-gray-50 mb-4">
                   <div className="flex justify-between items-start">
                     <div className="flex-1">
                       <div className="flex items-center space-x-2 mb-2">
                         <h3 className="font-medium">{session.business_type}</h3>
-                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(session.status)}`}>
-                          {getStatusText(session.status)}
-                        </span>
+                        <span className={`px-2 py-1 rounded-full text-xs font-medium ${getStatusColor(session.status)}`}>{getStatusText(session.status)}</span>
                       </div>
                       <p className="text-sm text-gray-600">
                         {session.city}, {session.state}
@@ -643,35 +753,48 @@ const ScrappingMap = () => {
                       <p className="text-sm text-gray-500">
                         {session.results_count} de {session.limit_requested} resultados • {session.created_at ? formatDate(session.created_at) : 'N/A'}
                       </p>
-                      {session.error_message && (
-                        <p className="text-sm text-red-600 mt-1">{session.error_message}</p>
-                      )}
+                        {session.error_message && (
+                          <p className="text-sm text-red-600 mt-1">{session.error_message}</p>
+                        )}
+                      </div>
+                      <div className="flex flex-col gap-2 ml-4">
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleToggleSession(session)}
+                        >
+                          {expandedSessionId === session.id ? 'Fechar' : 'Ver'}
+                        </Button>
+                        <Button
+                          variant="outline"
+                          size="sm"
+                          onClick={() => handleDeleteSession(session.id)}
+                          className="mt-1"
+                        >
+                          Excluir
+                        </Button>
+                      </div>
                     </div>
-                    <div className="flex space-x-2">
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleViewSession(session)}
-                        leftIcon={<Eye size={14} />}
-                      >
-                        Ver
-                      </Button>
-                      <Button
-                        variant="outline"
-                        size="sm"
-                        onClick={() => handleDeleteSession(session.id)}
-                        leftIcon={<Trash2 size={14} />}
-                      >
-                        Excluir
-                      </Button>
-                    </div>
+                    {/* Resultados da sessão expandida */}
+                    {expandedSessionId === session.id && (
+                      <div className="mt-4">
+                        {loadingSessionResults === session.id ? (
+                          <div className="flex items-center justify-center h-24">
+                            <Loader className="animate-spin h-6 w-6 text-blue-600" />
+                          </div>
+                        ) : (sessionResults[session.id]?.length === 0 ? (
+                          <p className="text-gray-500 text-center py-4">Nenhum resultado encontrado para esta sessão.</p>
+                        ) : (
+                          <ScrappingResultsTable results={sessionResults[session.id]} />
+                        ))}
+                      </div>
+                    )}
                   </div>
-                </div>
-              ))}
-            </div>
-          )}
-        </Card>
-      )}
+                ))}
+              </div>
+            )}
+          </Card>
+        )}
 
       {selectedSession && (
         <Card className="p-6">
@@ -697,44 +820,7 @@ const ScrappingMap = () => {
           ) : sessionResults.length === 0 ? (
             <p className="text-gray-500 text-center py-8">Nenhum resultado encontrado para esta sessão.</p>
           ) : (
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Empresa
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Telefone
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Email
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Data
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {sessionResults.map((result) => (
-                    <tr key={result.id} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                        {result.company_name || 'N/A'}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {result.phone || 'N/A'}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {result.email || 'N/A'}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {result.created_at ? formatDate(result.created_at) : 'N/A'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
-            </div>
+            <ScrappingResultsTable results={sessionResults} />
           )}
         </Card>
       )}
@@ -852,6 +938,13 @@ const ScrappingMap = () => {
               <h2 className="text-lg font-semibold">Resultados ({results.length})</h2>
               <div className="flex space-x-2">
                 <Button
+                  onClick={toggleAllRows}
+                  variant="outline"
+                  size="sm"
+                >
+                  {expandedRows.size === results.length ? 'Colapsar Todos' : 'Expandir Todos'}
+                </Button>
+                <Button
                   onClick={handleExportCSV}
                   variant="outline"
                   leftIcon={<Download size={16} />}
@@ -868,38 +961,36 @@ const ScrappingMap = () => {
                 </Button>
               </div>
             </div>
-            <div className="overflow-x-auto">
-              <table className="min-w-full divide-y divide-gray-200">
-                <thead className="bg-gray-50">
-                  <tr>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Empresa
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Telefone
-                    </th>
-                    <th scope="col" className="px-6 py-3 text-left text-xs font-medium text-gray-500 uppercase tracking-wider">
-                      Email
-                    </th>
-                  </tr>
-                </thead>
-                <tbody className="bg-white divide-y divide-gray-200">
-                  {results.map((result, index) => (
-                    <tr key={index} className="hover:bg-gray-50">
-                      <td className="px-6 py-4 whitespace-nowrap text-sm font-medium text-gray-900">
-                        {result.title || 'N/A'}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {result.phone || 'N/A'}
-                      </td>
-                      <td className="px-6 py-4 whitespace-nowrap text-sm text-gray-500">
-                        {result.email || 'N/A'}
-                      </td>
-                    </tr>
-                  ))}
-                </tbody>
-              </table>
+            
+            {/* Resumo dos resultados */}
+            <div className="bg-blue-50 border border-blue-200 rounded-lg p-4 mb-6">
+              <h3 className="text-sm font-medium text-blue-900 mb-2">Resumo da Extração</h3>
+              <div className="grid grid-cols-2 md:grid-cols-4 gap-4 text-sm">
+                <div>
+                  <span className="text-blue-700 font-medium">Total de resultados:</span>
+                  <div className="text-blue-900 font-semibold">{results.length}</div>
+                </div>
+                <div>
+                  <span className="text-blue-700 font-medium">Com email:</span>
+                  <div className="text-blue-900 font-semibold">
+                    {results.filter(r => r.email || (r.completo?.emails && r.completo.emails.length > 0)).length}
+                  </div>
+                </div>
+                <div>
+                  <span className="text-blue-700 font-medium">Com website:</span>
+                  <div className="text-blue-900 font-semibold">
+                    {results.filter(r => r.website || r.completo?.website).length}
+                  </div>
+                </div>
+                <div>
+                  <span className="text-blue-700 font-medium">Média de pontuação:</span>
+                  <div className="text-blue-900 font-semibold">
+                    {(results.reduce((acc, r) => acc + (r.pontuacao || r.completo?.totalScore || 0), 0) / results.length).toFixed(1)}
+                  </div>
+                </div>
+              </div>
             </div>
+            <ScrappingResultsTable results={results} />
           </div>
         )}
       </Card>

@@ -765,6 +765,42 @@ const LeadModal = ({ lead, isOpen, onClose, onSave, onDelete }: LeadModalProps) 
                       />
                     </div>
                   </div>
+
+                  <div className="bg-gray-50 p-4 rounded-lg">
+                    <h4 className="text-sm font-medium text-gray-900 mb-4">Redes Sociais</h4>
+                    <div className="space-y-4">
+                      <Input
+                        label="Website"
+                        name="website"
+                        type="url"
+                        value={formData.website || ''}
+                        onChange={(e) => setFormData(prev => ({ ...prev, website: e.target.value }))}
+                        leftIcon={<LinkIcon size={18} className="text-gray-400" />}
+                        fullWidth
+                        placeholder="https://www.exemplo.com"
+                      />
+                      <Input
+                        label="Instagram"
+                        name="instagram"
+                        type="url"
+                        value={formData.instagram || ''}
+                        onChange={(e) => setFormData(prev => ({ ...prev, instagram: e.target.value }))}
+                        leftIcon={<LinkIcon size={18} className="text-gray-400" />}
+                        fullWidth
+                        placeholder="https://www.instagram.com/empresa"
+                      />
+                      <Input
+                        label="Facebook"
+                        name="facebook"
+                        type="url"
+                        value={formData.facebook || ''}
+                        onChange={(e) => setFormData(prev => ({ ...prev, facebook: e.target.value }))}
+                        leftIcon={<LinkIcon size={18} className="text-gray-400" />}
+                        fullWidth
+                        placeholder="https://www.facebook.com/empresa"
+                      />
+                    </div>
+                  </div>
                 </div>
 
                 <div className="space-y-6">
